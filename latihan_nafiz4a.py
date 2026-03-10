@@ -75,11 +75,11 @@ else:
     st.set_page_config(page_title="Surveyor Pro WebGIS", layout="wide")
     
     with st.sidebar:
-        # Paparan Logo
+        logo_url = 'https://imgur.com/your_po_logo_here.png' 
         try:
             st.image('image_0.png', use_container_width=True)
         except:
-            st.markdown("### [LOGO POLITEKNIK]")
+            st.image(logo_url, use_container_width=True)
 
         st.markdown(f"### 👋 Hi, **{st.session_state['current_user']}**")
         if st.sidebar.button("Log Keluar"):
@@ -107,8 +107,6 @@ else:
         df = pd.read_csv(uploaded_file)
         poly_meter = Polygon(list(zip(df['E'], df['N'])))
         label_data = calculate_survey_labels(df, poly_meter, offset_val)
-        
-        # Penukaran CRS ke WGS84 untuk Lat/Lon
         gdf_poly = gpd.GeoDataFrame(index=[0], crs="EPSG:4390", geometry=[poly_meter]).to_crs(epsg=4326)
         poly_wgs = gdf_poly.geometry.iloc[0]
         
@@ -117,57 +115,55 @@ else:
         stn_off_df = pd.DataFrame([{'E': x['stn_off_e'], 'N': x['stn_off_n']} for x in label_data])
         gdf_stn_off_wgs = gpd.GeoDataFrame(stn_off_df, geometry=gpd.points_from_xy(stn_off_df.E, stn_off_df.N), crs="EPSG:4390").to_crs(epsg=4326)
 
+        with export_container:
+            st.download_button("📥 Export GeoJSON (QGIS)", gdf_poly.to_json(), f"lot_{st.session_state['current_user']}.geojson", "application/json", use_container_width=True)
+
         m = folium.Map(location=[poly_wgs.centroid.y, poly_wgs.centroid.x], zoom_start=19, max_zoom=22)
-        folium.TileLayer(tiles="https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}", attr="Google", name="Google Satellite", max_zoom=22).add_to(m)
+        folium.TileLayer(tiles="https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}", attr="Google", name="Google Satellite", max_zoom=22, max_native_zoom=20).add_to(m)
 
         # 1. Sempadan
         if show_poly:
-            folium.Polygon(locations=[[p[1], p[0]] for p in poly_wgs.exterior.coords], color="#00FFFF", weight=2, fill=True, fill_opacity=0.1).add_to(m)
+            folium.Polygon(locations=[[p[1], p[0]] for p in poly_wgs.exterior.coords], color="#00FFFF", weight=2, fill=True, fill_opacity=0.1, popup=f"Luas: {poly_meter.area:.3f} m²").add_to(m)
 
-        # 2. Batu Sempadan (Dengan Maklumat Lat/Lon)
+        # 2. Batu Sempadan
         for i, row in df.iterrows():
             coords_wgs = poly_wgs.exterior.coords[i]
             if show_stn_point:
-                # HTML Popup yang mengandungi Easting, Northing, Lat, Lon
-                popup_html = f"""
-                <div style="font-family: Arial; font-size: 10pt; min-width: 160px;">
-                    <b style="color:red;">STN: {row['STN']}</b><hr style="margin:5px 0;">
-                    <b>E:</b> {row['E']:.3f} m<br>
-                    <b>N:</b> {row['N']:.3f} m<br>
-                    <b>Lat:</b> {coords_wgs[1]:.7f}<br>
-                    <b>Lon:</b> {coords_wgs[0]:.7f}
-                </div>
-                """
-                folium.CircleMarker(
-                    location=[coords_wgs[1], coords_wgs[0]], 
-                    radius=marker_size, 
-                    color="red", 
-                    fill=True, 
-                    fill_opacity=0.8, 
-                    tooltip=f"STN: {row['STN']} (Klik untuk Koordinat)",
-                    popup=folium.Popup(popup_html, max_width=300)
-                ).add_to(m)
+                popup_info = f"<div style='min-width:150px;'><b style='color:red;'>STN {row['STN']}</b><hr><b>E:</b> {row['E']:.3f}<br><b>N:</b> {row['N']:.3f}</div>"
+                folium.CircleMarker(location=[coords_wgs[1], coords_wgs[0]], radius=marker_size, color="red", fill=True, fill_opacity=0.8, tooltip=f"STN: {row['STN']}", popup=folium.Popup(popup_info, max_width=300)).add_to(m)
             
             if show_stn_no:
                 stn_pos = gdf_stn_off_wgs.iloc[i].geometry
                 stn_html = f'<div style="font-size: {text_size}pt; color: white; font-weight: bold; text-shadow: 2px 2px 3px black; transform: translate(-50%, -50%);">{row["STN"]}</div>'
                 folium.Marker([stn_pos.y, stn_pos.x], icon=folium.DivIcon(html=stn_html)).add_to(m)
 
-        # 3. Label Bearing (Kuning) & Jarak (Putih) - Bertingkat
+        # 3. Bearing di ATAS, Jarak di BAWAH
         if show_labels:
             for i, data in enumerate(label_data):
                 pos_wgs = gdf_off_wgs.iloc[i].geometry
                 label_html = f"""
-                <div style="transform: translate(-50%, -50%) rotate({data['rotation']}deg); text-align: center; white-space: nowrap; pointer-events: none;">
-                    <div style="font-size: {text_size}pt; color: #FFFF00; font-weight: bold; text-shadow: 2px 2px 5px black; display: block;">{data['bearing']}</div>
-                    <div style="font-size: {text_size-1}pt; color: #FFFFFF; font-weight: bold; text-shadow: 2px 2px 5px black; display: block; margin-top: -2px;">{data['distance']}</div>
+                <div style="
+                    transform: translate(-50%, -50%) rotate({data['rotation']}deg); 
+                    text-align: center; white-space: nowrap; pointer-events: none;
+                ">
+                    <div style="
+                        font-size: {text_size}pt; color: #FFFF00; font-weight: bold; 
+                        text-shadow: 2px 2px 5px black;
+                        display: block; /* Memastikan bearing di baris tersendiri */
+                    ">{data['bearing']}</div>
+                    <div style="
+                        font-size: {text_size-1}pt; color: #FFFFFF; font-weight: bold; 
+                        text-shadow: 2px 2px 5px black;
+                        display: block; /* Memastikan jarak di bawah bearing */
+                        margin-top: -2px; /* Rapatkan sedikit jarak antara baris */
+                    ">{data['distance']}</div>
                 </div>"""
                 folium.Marker([pos_wgs.y, pos_wgs.x], icon=folium.DivIcon(html=label_html)).add_to(m)
 
-        # 4. Luas (Hijau Terang)
+        # 4. Luas
         if show_area:
             area_text = f"{poly_meter.area:.3f} m²"
-            folium.Marker([poly_wgs.centroid.y, poly_wgs.centroid.x], icon=folium.DivIcon(html=f'<div style="font-size: {text_size+3}pt; color: #00FF00; font-weight: bold; text-shadow: 3px 3px 6px black; text-align: center; width: 200px; transform: translate(-50%,-50%);">{area_text}</div>')).add_to(m)
+            folium.Marker([poly_wgs.centroid.y, poly_wgs.centroid.x], icon=folium.DivIcon(html=f'<div style="font-size: {text_size+3}pt; color: #00FF00; font-weight: bold; text-shadow: 3px 3px 6px black; text-align: center; width: 200px; transform: translate(-50%,-50%); line-height: 1.2;">{area_text}</div>')).add_to(m)
 
         Fullscreen().add_to(m)
         MeasureControl(primary_length_unit='meters').add_to(m)
