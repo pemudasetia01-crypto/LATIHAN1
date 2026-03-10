@@ -74,22 +74,12 @@ if not st.session_state['logged_in']:
 else:
     st.set_page_config(page_title="Surveyor Pro WebGIS", layout="wide")
     
-    # --- SIDEBAR: LOGO DI ATAS SEKALI ---
     with st.sidebar:
-        # Menambahkan logo in berada pada atas sekali di tetapan
-        # Menggunakan format base64 atau URL langsung (di sini saya gunakan placeholder untuk URL imej anda)
-        # Sila gantikan URL 'https://i.imgur.com/your_image.png' dengan URL imej logo sebenar anda.
-        # Jika anda ada fail tempatan, anda perlu menukarnya ke base64.
-        
-        # Contoh URL placeholder logo Politeknik Ungku Omar:
-        logo_url = 'https://imgur.com/your_po_logo_here.png' # Sila letakkan URL imej logo sebenar anda di sini
-        
-        # Jika anda menggunakan logo tempatan (local), gunakan ini (pastikan image_0.png ada dalam folder):
+        logo_url = 'https://imgur.com/your_po_logo_here.png' 
         try:
-            st.image('image_0.png', use_container_width=True) # Mencuba logo tempatan
+            st.image('image_0.png', use_container_width=True)
         except:
-            st.image(logo_url, use_container_width=True) # Jika tiada tempatan, guna URL placeholder
-            st.warning("Gantikan 'logo_url' dalam kod dengan URL logo Politeknik sebenar anda.")
+            st.image(logo_url, use_container_width=True)
 
         st.markdown(f"### 👋 Hi, **{st.session_state['current_user']}**")
         if st.sidebar.button("Log Keluar"):
@@ -135,7 +125,7 @@ else:
         if show_poly:
             folium.Polygon(locations=[[p[1], p[0]] for p in poly_wgs.exterior.coords], color="#00FFFF", weight=2, fill=True, fill_opacity=0.1, popup=f"Luas: {poly_meter.area:.3f} m²").add_to(m)
 
-        # 2. Batu Sempadan (Tooltip & Popup)
+        # 2. Batu Sempadan
         for i, row in df.iterrows():
             coords_wgs = poly_wgs.exterior.coords[i]
             if show_stn_point:
@@ -147,7 +137,7 @@ else:
                 stn_html = f'<div style="font-size: {text_size}pt; color: white; font-weight: bold; text-shadow: 2px 2px 3px black; transform: translate(-50%, -50%);">{row["STN"]}</div>'
                 folium.Marker([stn_pos.y, stn_pos.x], icon=folium.DivIcon(html=stn_html)).add_to(m)
 
-        # 3. Bearing & Jarak (Sangat Jelas, Latar Belakang Dibuang)
+        # 3. Bearing di ATAS, Jarak di BAWAH
         if show_labels:
             for i, data in enumerate(label_data):
                 pos_wgs = gdf_off_wgs.iloc[i].geometry
@@ -155,22 +145,22 @@ else:
                 <div style="
                     transform: translate(-50%, -50%) rotate({data['rotation']}deg); 
                     text-align: center; white-space: nowrap; pointer-events: none;
-                    line-height: 1.1; /* Melaraskan jarak antara bearing dan jarak */
                 ">
                     <div style="
                         font-size: {text_size}pt; color: #FFFF00; font-weight: bold; 
                         text-shadow: 2px 2px 5px black;
-                        display: inline-block; padding: 2px 0; /* Menambahkan padding visual */
+                        display: block; /* Memastikan bearing di baris tersendiri */
                     ">{data['bearing']}</div>
                     <div style="
                         font-size: {text_size-1}pt; color: #FFFFFF; font-weight: bold; 
                         text-shadow: 2px 2px 5px black;
-                        display: inline-block; padding: 2px 0; /* Menambahkan padding visual */
+                        display: block; /* Memastikan jarak di bawah bearing */
+                        margin-top: -2px; /* Rapatkan sedikit jarak antara baris */
                     ">{data['distance']}</div>
                 </div>"""
                 folium.Marker([pos_wgs.y, pos_wgs.x], icon=folium.DivIcon(html=label_html)).add_to(m)
 
-        # 4. Luas (Sangat Jelas Terang Hijau)
+        # 4. Luas
         if show_area:
             area_text = f"{poly_meter.area:.3f} m²"
             folium.Marker([poly_wgs.centroid.y, poly_wgs.centroid.x], icon=folium.DivIcon(html=f'<div style="font-size: {text_size+3}pt; color: #00FF00; font-weight: bold; text-shadow: 3px 3px 6px black; text-align: center; width: 200px; transform: translate(-50%,-50%); line-height: 1.2;">{area_text}</div>')).add_to(m)
