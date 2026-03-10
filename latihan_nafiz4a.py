@@ -1,150 +1,160 @@
 import streamlit as st
 import pandas as pd
 import geopandas as gpd
-from shapely.geometry import Polygon
+from shapely.geometry import Polygon, mapping
 import folium
+from folium.plugins import MeasureControl, MousePosition, Fullscreen
 from streamlit_folium import st_folium
 import numpy as np
+import json
 
-# --- 1. FUNGSI TUKAR PERPULUHAN KE DMS ---
+# --- 1. PENGURUSAN PASSWORD & SESSION ---
+if 'password' not in st.session_state:
+    st.session_state['password'] = 'admin123'
+if 'logged_in' not in st.session_state:
+    st.session_state['logged_in'] = False
+
+def login_page():
+    st.title("🔐 Login Sistem Surveyor")
+    name = st.text_input("Nama Pengguna (ID 1)")
+    pwd = st.text_input("Kata Laluan", type="password")
+    
+    col1, col2 = st.columns(2)
+    if col1.button("Login"):
+        if pwd == st.session_state['password']:
+            st.session_state['logged_in'] = True
+            st.session_state['user_name'] = name
+            st.rerun()
+        else:
+            st.error("Kata laluan salah!")
+            
+    if col2.button("Lupa Password?"):
+        st.session_state['reset_mode'] = True
+
+    if st.session_state.get('reset_mode'):
+        new_pwd = st.text_input("Masukkan Password Baru")
+        if st.button("Simpan Password Baru"):
+            st.session_state['password'] = new_pwd
+            st.session_state['reset_mode'] = False
+            st.success("Password baru telah disimpan! Sila login.")
+
+# --- 2. FUNGSI GEOMETRI ---
 def decimal_to_dms(deg):
     d = int(deg)
     m = int((deg - d) * 60)
     s = round((deg - d - m/60) * 3600, 1)
-    if s >= 60: m += 1; s = 0
     return f"{d}°{abs(m)}'{abs(s)}\""
 
-# --- 2. FUNGSI KIRA DATA UKUR & POSISI LABEL (SMART OFFSET) ---
-def calculate_survey_labels(df, poly_meter):
+def calculate_survey_labels(df, poly_meter, offset_dist):
     results = []
     centroid = poly_meter.centroid
-    
     for i in range(len(df)):
-        p1 = df.iloc[i]
-        p2 = df.iloc[(i + 1) % len(df)]
-        
-        dx = p2['E'] - p1['E']
-        dy = p2['N'] - p1['N']
-        
-        mid_e = (p1['E'] + p2['E']) / 2
-        mid_n = (p1['N'] + p2['N']) / 2
-        
+        p1, p2 = df.iloc[i], df.iloc[(i + 1) % len(df)]
+        dx, dy = p2['E'] - p1['E'], p2['N'] - p1['N']
+        mid_e, mid_n = (p1['E'] + p2['E']) / 2, (p1['N'] + p2['N']) / 2
         dist = np.sqrt(dx**2 + dy**2)
         angle_rad = np.arctan2(dx, dy)
-        bearing_deg = (np.degrees(angle_rad) + 360) % 360
+        bearing = decimal_to_dms((np.degrees(angle_rad) + 360) % 360)
         
-        # Rotasi teks
         rotation = np.degrees(angle_rad) - 90
         if rotation > 90: rotation -= 180
         if rotation < -90: rotation += 180
         
-        # Tolak label ke luar dari centroid
-        vec_c_to_m_e = mid_e - centroid.x
-        vec_c_to_m_n = mid_n - centroid.y
-        mag = np.sqrt(vec_c_to_m_e**2 + vec_c_to_m_n**2)
+        # Offset calculation
+        mag = np.sqrt((mid_e - centroid.x)**2 + (mid_n - centroid.y)**2)
+        off_e = mid_e + ((mid_e - centroid.x) / mag * offset_dist)
+        off_n = mid_n + ((mid_n - centroid.y) / mag * offset_dist)
         
-        offset_val = 2.0  # Jarak label dari garisan (meter)
-        off_e = mid_e + (vec_c_to_m_e / mag * offset_val)
-        off_n = mid_n + (vec_c_to_m_n / mag * offset_val)
-        
-        results.append({
-            'bearing': decimal_to_dms(bearing_deg),
-            'distance': f"{dist:.3f}m",
-            'rotation': rotation,
-            'off_e': off_e,
-            'off_n': off_n
-        })
+        results.append({'bearing': bearing, 'distance': f"{dist:.3f}m", 'rotation': rotation, 'off_e': off_e, 'off_n': off_n})
     return results
 
-# --- 3. UI STREAMLIT ---
-st.set_page_config(page_title="Surveyor WebGIS Johor", layout="wide")
-st.title("🗺️ WebGIS Poligon: Kertau/Johor (EPSG:4390) ke WGS84")
-st.info("Sistem ini menukar koordinat EPSG:4390 secara automatik ke WGS84 untuk paparan Google Satellite.")
+# --- MAIN APP ---
+if not st.session_state['logged_in']:
+    login_page()
+else:
+    st.set_page_config(page_title="Surveyor Pro WebGIS", layout="wide")
+    st.sidebar.write(f"👋 Hi, **{st.session_state['user_name']}**")
+    if st.sidebar.button("Logout"):
+        st.session_state['logged_in'] = False
+        st.rerun()
 
-uploaded_file = st.file_uploader("Muat naik CSV (STN, E, N)", type="csv")
+    st.title("🛰️ Johor Grid WebGIS (EPSG:4390)")
 
-if uploaded_file:
-    df = pd.read_csv(uploaded_file)
-    if all(col in df.columns for col in ['E', 'N', 'STN']):
+    # Sidebar Kawalan
+    with st.sidebar:
+        st.header("⚙️ Tetapan Paparan")
+        text_size = st.slider("Saiz Teks Label", 5, 20, 10)
+        marker_size = st.slider("Saiz Titik Stesen", 2, 10, 5)
+        offset_val = st.slider("Jarak Label (Meter)", 1.0, 10.0, 3.0)
         
-        # 1. Bina Poligon dalam koordinat asal (EPSG:4390)
-        poly_coords = list(zip(df['E'], df['N']))
-        poly_meter = Polygon(poly_coords)
+        st.header("📂 Data")
+        uploaded_file = st.file_uploader("Muat naik CSV (STN, E, N)", type="csv")
+
+    if uploaded_file:
+        df = pd.read_csv(uploaded_file)
         
-        # 2. Kira Data Label (Bearing/Jarak) menggunakan data meter
-        label_data = calculate_survey_labels(df, poly_meter)
+        # Geoprocessing
+        poly_meter = Polygon(list(zip(df['E'], df['N'])))
+        label_data = calculate_survey_labels(df, poly_meter, offset_val)
         
-        # 3. AUTO-CONVERT: Tukar Poligon ke WGS84 (EPSG:4326)
-        gdf_poly = gpd.GeoDataFrame(index=[0], crs="EPSG:4390", geometry=[poly_meter])
-        gdf_poly_wgs = gdf_poly.to_crs(epsg=4326)
-        poly_wgs = gdf_poly_wgs.geometry.iloc[0]
+        # Convert to WGS84
+        gdf_poly = gpd.GeoDataFrame(index=[0], crs="EPSG:4390", geometry=[poly_meter]).to_crs(epsg=4326)
+        poly_wgs = gdf_poly.geometry.iloc[0]
         
-        # 4. AUTO-CONVERT: Tukar Titik Offset Label ke WGS84
         off_df = pd.DataFrame([{'E': x['off_e'], 'N': x['off_n']} for x in label_data])
-        gdf_off = gpd.GeoDataFrame(off_df, geometry=gpd.points_from_xy(off_df.E, off_df.N), crs="EPSG:4390")
-        gdf_off_wgs = gdf_off.to_crs(epsg=4326)
+        gdf_off_wgs = gpd.GeoDataFrame(off_df, geometry=gpd.points_from_xy(off_df.E, off_df.N), crs="EPSG:4390").to_crs(epsg=4326)
 
-        # Paparan Metrik
-        col1, col2 = st.columns(2)
-        col1.metric("Luas Lot", f"{poly_meter.area:.3f} m²")
-        col2.metric("Luas (Ekar)", f"{(poly_meter.area * 0.0002471):.4f} Ekar")
-
-        # 5. KONFIGURASI PETA FOLIUM
-        m = folium.Map(
-            location=[poly_wgs.centroid.y, poly_wgs.centroid.x], 
-            zoom_start=19, 
-            max_zoom=22
-        )
+        # Info Ringkas
+        perimeter = poly_meter.length
+        area_m2 = poly_meter.area
         
-        # Tambah Layer Google Satellite
-        google_sat = folium.TileLayer(
-            tiles="https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}",
-            attr="Google Satellite",
-            name="Google Satellite",
-            max_zoom=22,
-            max_native_zoom=20
-        ).add_to(m)
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Luas", f"{area_m2:.3f} m²")
+        col2.metric("Perimeter", f"{perimeter:.3f} m")
+        
+        # --- EXPORT QGIS (GeoJSON) ---
+        geojson_data = gdf_poly.to_json()
+        st.download_button(
+            label="📥 Export ke QGIS (GeoJSON)",
+            data=geojson_data,
+            file_name="lot_survey.geojson",
+            mime="application/json"
+        )
 
-        # Lukis sempadan Poligon
+        # --- MAP ---
+        m = folium.Map(location=[poly_wgs.centroid.y, poly_wgs.centroid.x], zoom_start=19, max_zoom=22)
+        
+        folium.TileLayer(tiles="https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}", 
+                         attr="Google", name="Google Hybrid", max_zoom=22, max_native_zoom=20).add_to(m)
+
+        # Polygon Layer dengan Popup Maklumat
         folium.Polygon(
             locations=[[p[1], p[0]] for p in poly_wgs.exterior.coords],
-            color="#00FFFF",
-            weight=3,
-            fill=True,
-            fill_opacity=0.15
+            color="cyan", weight=3, fill=True, fill_opacity=0.2,
+            tooltip="Klik untuk info lot",
+            popup=f"<b>MAKLUMAT LOT</b><br>Luas: {area_m2:.3f} m²<br>Perimeter: {perimeter:.3f} m"
         ).add_to(m)
 
-        # Tambah Marker Stesen & Label
+        # Stesen & Label
         for i, row in df.iterrows():
-            # Marker Merah di Stesen
-            stn_coord_wgs = poly_wgs.exterior.coords[i]
+            stn_wgs = poly_wgs.exterior.coords[i]
+            # Point Stesen keluar koordinat
             folium.CircleMarker(
-                [stn_coord_wgs[1], stn_coord_wgs[0]], 
-                radius=4, color="red", fill=True, popup=f"STN: {row['STN']}"
-            ).add_to(m)
-            
-            # Label Bearing & Jarak (HTML)
-            data = label_data[i]
-            pos_wgs = gdf_off_wgs.iloc[i].geometry
-            
-            label_html = f"""
-                <div style="
-                    transform: translate(-50%, -50%) rotate({data['rotation']}deg); 
-                    text-align: center; 
-                    white-space: nowrap;
-                    pointer-events: none;
-                ">
-                    <div style="font-size: 8pt; color: #FFFF00; font-weight: bold; text-shadow: 2px 2px 3px black;">{data['bearing']}</div>
-                    <div style="font-size: 7pt; color: #FFFFFF; font-weight: bold; text-shadow: 2px 2px 3px black;">{data['distance']}</div>
-                </div>"""
-            
-            folium.Marker(
-                [pos_wgs.y, pos_wgs.x], 
-                icon=folium.DivIcon(html=label_html)
+                [stn_wgs[1], stn_wgs[0]], radius=marker_size, color="red", fill=True,
+                popup=f"<b>STN: {row['STN']}</b><br>E: {row['E']}<br>N: {row['N']}<br>Lat: {stn_wgs[1]:.6f}<br>Lon: {stn_wgs[0]:.6f}"
             ).add_to(m)
 
-        # Paparkan Peta
-        st_folium(m, use_container_width=True, height=700)
+            # Label Bearing & Jarak
+            data = label_data[i]
+            pos_wgs = gdf_off_wgs.iloc[i].geometry
+            label_html = f"""<div style="transform: translate(-50%,-50%) rotate({data['rotation']}deg); text-align: center; pointer-events: none;">
+                             <div style="font-size: {text_size}pt; color: #00FF00; font-weight: bold; text-shadow: 2px 2px 2px #000;">{data['bearing']}<br>{data['distance']}</div>
+                             </div>"""
+            folium.Marker([pos_wgs.y, pos_wgs.x], icon=folium.DivIcon(html=label_html)).add_to(m)
+
+        # Plugins
+        Fullscreen().add_to(m)
+        MeasureControl(primary_length_unit='meters').add_to(m)
+        MousePosition().add_to(m)
         
-    else:
-        st.error("Ralat: Fail CSV mesti mempunyai kolum 'STN', 'E', dan 'N'.")
+        st_folium(m, use_container_width=True, height=700)
