@@ -88,7 +88,7 @@ else:
         show_labels = st.checkbox("Bearing & Jarak", value=True)
         show_area = st.checkbox("Luas Lot", value=True)
         st.markdown("---")
-        text_size = st.slider("Saiz Teks Label", 6, 20, 10)
+        text_size = st.slider("Saiz Teks Label", 6, 20, 9)
         marker_size = st.slider("Saiz Titik", 2, 12, 6)
         offset_val = st.slider("Jarak Label Garisan (m)", 0.1, 10.0, 1.8)
         st.header("📂 Data & Export")
@@ -117,49 +117,50 @@ else:
         if show_poly:
             folium.Polygon(locations=[[p[1], p[0]] for p in poly_wgs.exterior.coords], color="#00FFFF", weight=2, fill=True, fill_opacity=0.1, popup=f"Luas: {poly_meter.area:.3f} m²").add_to(m)
 
-        # 2. Batu Sempadan
+        # 2. Batu Sempadan (Hover & Click Info)
         for i, row in df.iterrows():
             coords_wgs = poly_wgs.exterior.coords[i]
+            
             if show_stn_point:
-                popup_info = f"<div style='min-width:150px;'><b style='color:red;'>STN {row['STN']}</b><hr><b>E:</b> {row['E']:.3f}<br><b>N:</b> {row['N']:.3f}</div>"
-                folium.CircleMarker(location=[coords_wgs[1], coords_wgs[0]], radius=marker_size, color="red", fill=True, fill_opacity=0.8, tooltip=f"STN: {row['STN']}", popup=folium.Popup(popup_info, max_width=300)).add_to(m)
+                # Popup Maklumat Lengkap apabila KLIK
+                popup_info = f"""
+                <div style="font-family: Arial; font-size: 10pt; min-width: 150px;">
+                    <b style="color:red;">MAKLUMAT STESEN {row['STN']}</b><br><hr>
+                    <b>Easting:</b> {row['E']:.3f} m<br>
+                    <b>Northing:</b> {row['N']:.3f} m<br>
+                    <b>Lat:</b> {coords_wgs[1]:.7f}<br>
+                    <b>Lon:</b> {coords_wgs[0]:.7f}
+                </div>
+                """
+                
+                folium.CircleMarker(
+                    location=[coords_wgs[1], coords_wgs[0]], 
+                    radius=marker_size, 
+                    color="red", 
+                    fill=True, 
+                    fill_opacity=0.8,
+                    tooltip=f"Stesen: {row['STN']} (Klik untuk info)", # Keluar apabila mouse direction tekan/hover
+                    popup=folium.Popup(popup_info, max_width=300)
+                ).add_to(m)
             
             if show_stn_no:
                 stn_pos = gdf_stn_off_wgs.iloc[i].geometry
-                stn_html = f"""<div style="
-                    font-size: {text_size}pt; color: white; font-weight: bold; 
-                    text-shadow: 2px 2px 3px black; transform: translate(-50%, -50%);">
-                    {row["STN"]}</div>"""
+                stn_html = f'<div style="font-size: {text_size}pt; color: white; font-weight: bold; text-shadow: 1px 1px 2px black; transform: translate(-50%, -50%);">{row["STN"]}</div>'
                 folium.Marker([stn_pos.y, stn_pos.x], icon=folium.DivIcon(html=stn_html)).add_to(m)
 
-        # 3. Bearing & Jarak (Tanpa Background)
+        # 3. Bearing/Jarak
         if show_labels:
             for i, data in enumerate(label_data):
                 pos_wgs = gdf_off_wgs.iloc[i].geometry
-                label_html = f"""
-                <div style="
-                    transform: translate(-50%, -50%) rotate({data['rotation']}deg); 
-                    text-align: center; white-space: nowrap; pointer-events: none;
-                ">
-                    <div style="font-size: {text_size}pt; color: #FFFF00; font-weight: bold; line-height: 1.2; text-shadow: 2px 2px 4px black;">{data['bearing']}</div>
-                    <div style="font-size: {text_size-1}pt; color: #FFFFFF; font-weight: bold; line-height: 1.1; text-shadow: 2px 2px 4px black;">{data['distance']}</div>
-                </div>"""
+                label_html = f"""<div style="transform: translate(-50%, -50%) rotate({data['rotation']}deg); text-align: center; white-space: nowrap; pointer-events: none;">
+                                 <div style="font-size: {text_size}pt; color: #00FF00; font-weight: bold; text-shadow: 1px 1px 2px #000; line-height: 1.1;">{data['bearing']}<br>{data['distance']}</div>
+                                 </div>"""
                 folium.Marker([pos_wgs.y, pos_wgs.x], icon=folium.DivIcon(html=label_html)).add_to(m)
 
-        # 4. Luas (Tanpa Background)
+        # 4. Luas
         if show_area:
             area_text = f"{poly_meter.area:.3f} m²"
-            folium.Marker(
-                [poly_wgs.centroid.y, poly_wgs.centroid.x], 
-                icon=folium.DivIcon(html=f"""
-                <div style="
-                    font-size: {text_size+3}pt; color: #00FF00; font-weight: bold; 
-                    text-align: center; transform: translate(-50%,-50%);
-                    text-shadow: 2px 2px 5px black;
-                ">
-                    {area_text}
-                </div>""")
-            ).add_to(m)
+            folium.Marker([poly_wgs.centroid.y, poly_wgs.centroid.x], icon=folium.DivIcon(html=f'<div style="font-size: {text_size+2}pt; color: yellow; font-weight: bold; text-shadow: 2px 2px 4px black; text-align: center; width: 200px; transform: translate(-50%,-50%);">{area_text}</div>')).add_to(m)
 
         Fullscreen().add_to(m)
         MeasureControl(primary_length_unit='meters').add_to(m)
