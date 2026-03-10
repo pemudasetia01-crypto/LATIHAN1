@@ -99,6 +99,8 @@ else:
         df = pd.read_csv(uploaded_file)
         poly_meter = Polygon(list(zip(df['E'], df['N'])))
         label_data = calculate_survey_labels(df, poly_meter, offset_val)
+        
+        # Tukar CRS ke WGS84 (EPSG:4326) untuk paparan peta & koordinat geografik
         gdf_poly = gpd.GeoDataFrame(index=[0], crs="EPSG:4390", geometry=[poly_meter]).to_crs(epsg=4326)
         poly_wgs = gdf_poly.geometry.iloc[0]
         
@@ -117,23 +119,45 @@ else:
         if show_poly:
             folium.Polygon(locations=[[p[1], p[0]] for p in poly_wgs.exterior.coords], color="#00FFFF", weight=2, fill=True, fill_opacity=0.1, popup=f"Luas: {poly_meter.area:.3f} m²").add_to(m)
 
-        # 2. Batu Sempadan (Tooltip & Popup)
+        # 2. Batu Sempadan (Popup Maklumat Lengkap)
         for i, row in df.iterrows():
             coords_wgs = poly_wgs.exterior.coords[i]
+            
             if show_stn_point:
-                popup_info = f"<div style='min-width:150px;'><b style='color:red;'>STN {row['STN']}</b><hr><b>E:</b> {row['E']:.3f}<br><b>N:</b> {row['N']:.3f}</div>"
-                folium.CircleMarker(location=[coords_wgs[1], coords_wgs[0]], radius=marker_size, color="red", fill=True, fill_opacity=0.8, tooltip=f"STN: {row['STN']}", popup=folium.Popup(popup_info, max_width=300)).add_to(m)
+                # HTML content untuk Popup
+                popup_html = f"""
+                <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; font-size: 11px; width: 180px;">
+                    <h4 style="margin:0; color:#d9534f;">STESEN {row['STN']}</h4>
+                    <hr style="margin: 5px 0;">
+                    <table style="width:100%">
+                        <tr><td><b>Easting:</b></td><td style="text-align:right;">{row['E']:.3f}</td></tr>
+                        <tr><td><b>Northing:</b></td><td style="text-align:right;">{row['N']:.3f}</td></tr>
+                        <tr><td colspan="2"><hr style="margin: 3px 0; border: 0.5px dashed #ccc;"></td></tr>
+                        <tr><td><b>Latitud:</b></td><td style="text-align:right; color:blue;">{coords_wgs[1]:.7f}</td></tr>
+                        <tr><td><b>Longitud:</b></td><td style="text-align:right; color:blue;">{coords_wgs[0]:.7f}</td></tr>
+                    </table>
+                </div>
+                """
+                
+                folium.CircleMarker(
+                    location=[coords_wgs[1], coords_wgs[0]], 
+                    radius=marker_size, 
+                    color="red", 
+                    fill=True, 
+                    fill_opacity=0.8, 
+                    tooltip=f"STN: {row['STN']} (Klik untuk koordinat)", 
+                    popup=folium.Popup(popup_html, max_width=250)
+                ).add_to(m)
             
             if show_stn_no:
                 stn_pos = gdf_stn_off_wgs.iloc[i].geometry
                 stn_html = f'<div style="font-size: {text_size}pt; color: white; font-weight: bold; text-shadow: 2px 2px 3px black; transform: translate(-50%, -50%);">{row["STN"]}</div>'
                 folium.Marker([stn_pos.y, stn_pos.x], icon=folium.DivIcon(html=stn_html)).add_to(m)
 
-        # 3. Bearing & Jarak (WARNA BERBEZA)
+        # 3. Bearing & Jarak
         if show_labels:
             for i, data in enumerate(label_data):
                 pos_wgs = gdf_off_wgs.iloc[i].geometry
-                # Bearing = Kuning (#FFFF00), Jarak = Putih (#FFFFFF)
                 label_html = f"""
                 <div style="transform: translate(-50%, -50%) rotate({data['rotation']}deg); text-align: center; white-space: nowrap; pointer-events: none;">
                     <div style="font-size: {text_size}pt; color: #FFFF00; font-weight: bold; text-shadow: 2px 2px 4px black; line-height: 1.2;">{data['bearing']}</div>
