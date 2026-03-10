@@ -117,7 +117,7 @@ else:
         if show_poly:
             folium.Polygon(locations=[[p[1], p[0]] for p in poly_wgs.exterior.coords], color="#00FFFF", weight=2, fill=True, fill_opacity=0.1, popup=f"Luas: {poly_meter.area:.3f} m²").add_to(m)
 
-        # 2. Batu Sempadan (Tooltip & Popup)
+        # 2. Batu Sempadan
         for i, row in df.iterrows():
             coords_wgs = poly_wgs.exterior.coords[i]
             if show_stn_point:
@@ -128,12 +128,12 @@ else:
                 stn_pos = gdf_stn_off_wgs.iloc[i].geometry
                 stn_html = f"""<div style="
                     font-size: {text_size}pt; color: white; font-weight: bold; 
-                    background-color: rgba(0, 0, 0, 0.5); padding: 2px 5px; border-radius: 50%;
-                    text-shadow: 1px 1px 2px black; transform: translate(-50%, -50%);">
+                    background-color: rgba(0, 0, 0, 0.45); padding: 4px 6px; border-radius: 50%;
+                    transform: translate(-50%, -50%);">
                     {row["STN"]}</div>"""
                 folium.Marker([stn_pos.y, stn_pos.x], icon=folium.DivIcon(html=stn_html)).add_to(m)
 
-        # 3. Bearing & Jarak (Warna Berbeza + Background)
+        # 3. Bearing & Jarak (Background Full & Malap)
         if show_labels:
             for i, data in enumerate(label_data):
                 pos_wgs = gdf_off_wgs.iloc[i].geometry
@@ -141,17 +141,17 @@ else:
                 <div style="
                     transform: translate(-50%, -50%) rotate({data['rotation']}deg); 
                     text-align: center; white-space: nowrap; pointer-events: none;
-                    background-color: rgba(0, 0, 0, 0.6); 
-                    padding: 3px 8px; 
+                    background-color: rgba(0, 0, 0, 0.45); 
+                    padding: 8px 12px; 
                     border-radius: 4px;
-                    border: 1px solid rgba(255, 255, 255, 0.3);
+                    display: inline-block;
                 ">
                     <div style="font-size: {text_size}pt; color: #FFFF00; font-weight: bold; line-height: 1.2;">{data['bearing']}</div>
                     <div style="font-size: {text_size-1}pt; color: #FFFFFF; font-weight: normal; line-height: 1.1;">{data['distance']}</div>
                 </div>"""
                 folium.Marker([pos_wgs.y, pos_wgs.x], icon=folium.DivIcon(html=label_html)).add_to(m)
 
-        # 4. Luas (Background Box)
+        # 4. Luas (Background Full & Malap)
         if show_area:
             area_text = f"{poly_meter.area:.3f} m²"
             folium.Marker(
@@ -159,9 +159,9 @@ else:
                 icon=folium.DivIcon(html=f"""
                 <div style="
                     font-size: {text_size+2}pt; color: #00FF00; font-weight: bold; 
-                    background-color: rgba(0, 0, 0, 0.7); padding: 5px 10px; border-radius: 5px;
-                    border: 2px solid #00FF00;
-                    text-align: center; width: auto; transform: translate(-50%,-50%);
+                    background-color: rgba(0, 0, 0, 0.45); padding: 10px 20px; border-radius: 5px;
+                    text-align: center; transform: translate(-50%,-50%);
+                    border: 1px solid rgba(0, 255, 0, 0.3);
                 ">
                     {area_text}
                 </div>""")
