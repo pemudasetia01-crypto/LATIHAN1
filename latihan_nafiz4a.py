@@ -88,9 +88,9 @@ else:
         show_labels = st.checkbox("Bearing & Jarak", value=True)
         show_area = st.checkbox("Luas Lot", value=True)
         st.markdown("---")
-        text_size = st.slider("Saiz Teks Label", 6, 20, 9)
+        text_size = st.slider("Saiz Teks Label", 6, 20, 10)
         marker_size = st.slider("Saiz Titik", 2, 12, 6)
-        offset_val = st.slider("Jarak Label Garisan (m)", 0.1, 10.0, 2.0)
+        offset_val = st.slider("Jarak Label Garisan (m)", 0.1, 10.0, 1.8)
         st.header("📂 Data & Export")
         uploaded_file = st.file_uploader("Muat naik CSV (STN, E, N)", type="csv")
         export_container = st.container()
@@ -128,12 +128,11 @@ else:
                 stn_pos = gdf_stn_off_wgs.iloc[i].geometry
                 stn_html = f"""<div style="
                     font-size: {text_size}pt; color: white; font-weight: bold; 
-                    background-color: rgba(0, 0, 0, 0.45); padding: 4px 6px; border-radius: 50%;
-                    transform: translate(-50%, -50%);">
+                    text-shadow: 2px 2px 3px black; transform: translate(-50%, -50%);">
                     {row["STN"]}</div>"""
                 folium.Marker([stn_pos.y, stn_pos.x], icon=folium.DivIcon(html=stn_html)).add_to(m)
 
-        # 3. Bearing & Jarak (Background Full & Malap)
+        # 3. Bearing & Jarak (Tanpa Background)
         if show_labels:
             for i, data in enumerate(label_data):
                 pos_wgs = gdf_off_wgs.iloc[i].geometry
@@ -141,27 +140,22 @@ else:
                 <div style="
                     transform: translate(-50%, -50%) rotate({data['rotation']}deg); 
                     text-align: center; white-space: nowrap; pointer-events: none;
-                    background-color: rgba(0, 0, 0, 0.45); 
-                    padding: 8px 12px; 
-                    border-radius: 4px;
-                    display: inline-block;
                 ">
-                    <div style="font-size: {text_size}pt; color: #FFFF00; font-weight: bold; line-height: 1.2;">{data['bearing']}</div>
-                    <div style="font-size: {text_size-1}pt; color: #FFFFFF; font-weight: normal; line-height: 1.1;">{data['distance']}</div>
+                    <div style="font-size: {text_size}pt; color: #FFFF00; font-weight: bold; line-height: 1.2; text-shadow: 2px 2px 4px black;">{data['bearing']}</div>
+                    <div style="font-size: {text_size-1}pt; color: #FFFFFF; font-weight: bold; line-height: 1.1; text-shadow: 2px 2px 4px black;">{data['distance']}</div>
                 </div>"""
                 folium.Marker([pos_wgs.y, pos_wgs.x], icon=folium.DivIcon(html=label_html)).add_to(m)
 
-        # 4. Luas (Background Full & Malap)
+        # 4. Luas (Tanpa Background)
         if show_area:
             area_text = f"{poly_meter.area:.3f} m²"
             folium.Marker(
                 [poly_wgs.centroid.y, poly_wgs.centroid.x], 
                 icon=folium.DivIcon(html=f"""
                 <div style="
-                    font-size: {text_size+2}pt; color: #00FF00; font-weight: bold; 
-                    background-color: rgba(0, 0, 0, 0.45); padding: 10px 20px; border-radius: 5px;
+                    font-size: {text_size+3}pt; color: #00FF00; font-weight: bold; 
                     text-align: center; transform: translate(-50%,-50%);
-                    border: 1px solid rgba(0, 255, 0, 0.3);
+                    text-shadow: 2px 2px 5px black;
                 ">
                     {area_text}
                 </div>""")
