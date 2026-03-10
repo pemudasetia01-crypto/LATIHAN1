@@ -46,46 +46,26 @@ def decimal_to_dms(deg):
 def calculate_survey_labels(df, poly_meter, offset_dist):
     results = []
     centroid = poly_meter.centroid
-    
     for i in range(len(df)):
         p1 = df.iloc[i]
         p2 = df.iloc[(i + 1) % len(df)]
-        
-        mid_e = (p1['E'] + p2['E']) / 2
-        mid_n = (p1['N'] + p2['N']) / 2
-        
-        dx = p2['E'] - p1['E']
-        dy = p2['N'] - p1['N']
+        mid_e, mid_n = (p1['E'] + p2['E']) / 2, (p1['N'] + p2['N']) / 2
+        dx, dy = p2['E'] - p1['E'], p2['N'] - p1['N']
         dist = np.sqrt(dx**2 + dy**2)
         angle_rad = np.arctan2(dx, dy)
         bearing = decimal_to_dms((np.degrees(angle_rad) + 360) % 360)
-        
         rotation = np.degrees(angle_rad) - 90
         if rotation > 90: rotation -= 180
         if rotation < -90: rotation += 180
-        
-        # Tolak ke luar untuk label garisan
         v_e, v_n = mid_e - centroid.x, mid_n - centroid.y
         v_mag = np.sqrt(v_e**2 + v_n**2)
         off_e = mid_e + (v_e / v_mag * offset_dist)
         off_n = mid_n + (v_n / v_mag * offset_dist)
-        
-        # Kira kedudukan No Stesen (sedikit offset dari titik asal)
         stn_v_e, stn_v_n = p1['E'] - centroid.x, p1['N'] - centroid.y
         stn_v_mag = np.sqrt(stn_v_e**2 + stn_v_n**2)
-        # Tolak no stesen 1.2m keluar dari titik batu sempadan
-        stn_off_e = p1['E'] + (stn_v_e / stn_v_mag * 1.2)
-        stn_off_n = p1['N'] + (stn_v_n / stn_v_mag * 1.2)
-        
-        results.append({
-            'bearing': bearing, 
-            'distance': f"{dist:.3f}m", 
-            'rotation': rotation, 
-            'off_e': off_e, 
-            'off_n': off_n,
-            'stn_off_e': stn_off_e,
-            'stn_off_n': stn_off_n
-        })
+        stn_off_e = p1['E'] + (stn_v_e / stn_v_mag * 1.5)
+        stn_off_n = p1['N'] + (stn_v_n / stn_v_mag * 1.5)
+        results.append({'bearing': bearing, 'distance': f"{dist:.3f}m", 'rotation': rotation, 'off_e': off_e, 'off_n': off_n, 'stn_off_e': stn_off_e, 'stn_off_n': stn_off_n})
     return results
 
 # --- 3. MAIN APP ---
@@ -107,12 +87,10 @@ else:
         show_stn_no = st.checkbox("No. Stesen", value=True)
         show_labels = st.checkbox("Bearing & Jarak", value=True)
         show_area = st.checkbox("Luas Lot", value=True)
-        
         st.markdown("---")
         text_size = st.slider("Saiz Teks Label", 6, 20, 9)
-        marker_size = st.slider("Saiz Titik", 2, 12, 5)
+        marker_size = st.slider("Saiz Titik", 2, 12, 6)
         offset_val = st.slider("Jarak Label Garisan (m)", 0.1, 10.0, 1.8)
-        
         st.header("📂 Data & Export")
         uploaded_file = st.file_uploader("Muat naik CSV (STN, E, N)", type="csv")
         export_container = st.container()
@@ -121,15 +99,11 @@ else:
         df = pd.read_csv(uploaded_file)
         poly_meter = Polygon(list(zip(df['E'], df['N'])))
         label_data = calculate_survey_labels(df, poly_meter, offset_val)
-        
         gdf_poly = gpd.GeoDataFrame(index=[0], crs="EPSG:4390", geometry=[poly_meter]).to_crs(epsg=4326)
         poly_wgs = gdf_poly.geometry.iloc[0]
         
-        # Convert offset labels ke WGS84
         off_df = pd.DataFrame([{'E': x['off_e'], 'N': x['off_n']} for x in label_data])
         gdf_off_wgs = gpd.GeoDataFrame(off_df, geometry=gpd.points_from_xy(off_df.E, off_df.N), crs="EPSG:4390").to_crs(epsg=4326)
-        
-        # Convert offset No Stesen ke WGS84
         stn_off_df = pd.DataFrame([{'E': x['stn_off_e'], 'N': x['stn_off_n']} for x in label_data])
         gdf_stn_off_wgs = gpd.GeoDataFrame(stn_off_df, geometry=gpd.points_from_xy(stn_off_df.E, stn_off_df.N), crs="EPSG:4390").to_crs(epsg=4326)
 
@@ -143,15 +117,32 @@ else:
         if show_poly:
             folium.Polygon(locations=[[p[1], p[0]] for p in poly_wgs.exterior.coords], color="#00FFFF", weight=2, fill=True, fill_opacity=0.1, popup=f"Luas: {poly_meter.area:.3f} m²").add_to(m)
 
-        # 2. Batu Sempadan (Titik & No Stesen)
+        # 2. Batu Sempadan (Hover & Click Info)
         for i, row in df.iterrows():
             coords_wgs = poly_wgs.exterior.coords[i]
             
-            # Titik Merah
             if show_stn_point:
-                folium.CircleMarker([coords_wgs[1], coords_wgs[0]], radius=marker_size, color="red", fill=True, popup=f"STN: {row['STN']}<br>E: {row['E']}<br>N: {row['N']}").add_to(m)
+                # Popup Maklumat Lengkap apabila KLIK
+                popup_info = f"""
+                <div style="font-family: Arial; font-size: 10pt; min-width: 150px;">
+                    <b style="color:red;">MAKLUMAT STESEN {row['STN']}</b><br><hr>
+                    <b>Easting:</b> {row['E']:.3f} m<br>
+                    <b>Northing:</b> {row['N']:.3f} m<br>
+                    <b>Lat:</b> {coords_wgs[1]:.7f}<br>
+                    <b>Lon:</b> {coords_wgs[0]:.7f}
+                </div>
+                """
+                
+                folium.CircleMarker(
+                    location=[coords_wgs[1], coords_wgs[0]], 
+                    radius=marker_size, 
+                    color="red", 
+                    fill=True, 
+                    fill_opacity=0.8,
+                    tooltip=f"Stesen: {row['STN']} (Klik untuk info)", # Keluar apabila mouse direction tekan/hover
+                    popup=folium.Popup(popup_info, max_width=300)
+                ).add_to(m)
             
-            # Label No Stesen
             if show_stn_no:
                 stn_pos = gdf_stn_off_wgs.iloc[i].geometry
                 stn_html = f'<div style="font-size: {text_size}pt; color: white; font-weight: bold; text-shadow: 1px 1px 2px black; transform: translate(-50%, -50%);">{row["STN"]}</div>'
