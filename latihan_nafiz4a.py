@@ -74,14 +74,26 @@ else:
 
     st.title("🛰️ Johor Grid WebGIS (EPSG:4390)")
 
+    # --- SIDEBAR: TETAPAN VISUAL & EXPORT ---
     with st.sidebar:
         st.header("⚙️ Tetapan Visual")
+        
+        # On/Off Layers menggunakan Checkbox
+        show_poly = st.checkbox("Paparkan Sempadan Lot", value=True)
+        show_stn = st.checkbox("Paparkan Titik Stesen", value=True)
+        show_labels = st.checkbox("Paparkan Bearing/Jarak", value=True)
+        show_area = st.checkbox("Paparkan Label Luas", value=True)
+        
+        st.markdown("---")
         text_size = st.slider("Saiz Teks Label", 6, 20, 10)
         marker_size = st.slider("Saiz Titik Stesen", 2, 12, 6)
         offset_val = st.slider("Jarak Offset Label (m)", 0.5, 10.0, 2.5)
         
-        st.header("📂 Data")
+        st.header("📂 Data & Export")
         uploaded_file = st.file_uploader("Muat naik CSV (STN, E, N)", type="csv")
+        
+        # Placeholder untuk button export (hanya muncul jika file ada)
+        export_container = st.container()
 
     if uploaded_file:
         df = pd.read_csv(uploaded_file)
@@ -95,58 +107,64 @@ else:
         off_df = pd.DataFrame([{'E': x['off_e'], 'N': x['off_n']} for x in label_data])
         gdf_off_wgs = gpd.GeoDataFrame(off_df, geometry=gpd.points_from_xy(off_df.E, off_df.N), crs="EPSG:4390").to_crs(epsg=4326)
 
+        # Letakkan Button Export di Sidebar
+        with export_container:
+            st.download_button(
+                label="📥 Export GeoJSON (QGIS)",
+                data=gdf_poly.to_json(),
+                file_name=f"lot_{st.session_state['current_user']}.geojson",
+                mime="application/json",
+                use_container_width=True
+            )
+
         # 4. CIPTA PETA
         m = folium.Map(location=[poly_wgs.centroid.y, poly_wgs.centroid.x], zoom_start=19, max_zoom=22)
         
-        # Base Layers
-        google_sat = folium.TileLayer(
+        # Base Layer Google
+        folium.TileLayer(
             tiles="https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}",
             attr="Google", name="Google Satellite", max_zoom=22, max_native_zoom=20
         ).add_to(m)
 
-        # --- KUMPULAN LAYER (On/Off) ---
-        fg_poly = folium.FeatureGroup(name="Sempadan Lot").add_to(m)
-        fg_stn = folium.FeatureGroup(name="Titik Stesen").add_to(m)
-        fg_labels = folium.FeatureGroup(name="Label Bearing/Jarak").add_to(m)
-        fg_area = folium.FeatureGroup(name="Label Luas").add_to(m)
-
         # 1. Layer Sempadan
-        folium.Polygon(
-            locations=[[p[1], p[0]] for p in poly_wgs.exterior.coords],
-            color="#00FFFF", weight=3, fill=True, fill_opacity=0.2,
-            popup=f"Luas: {poly_meter.area:.3f} m²"
-        ).add_to(fg_poly)
+        if show_poly:
+            folium.Polygon(
+                locations=[[p[1], p[0]] for p in poly_wgs.exterior.coords],
+                color="#00FFFF", weight=3, fill=True, fill_opacity=0.2,
+                popup=f"Luas: {poly_meter.area:.3f} m²"
+            ).add_to(m)
 
         # 2. Layer Titik Stesen
-        for i, row in df.iterrows():
-            coords_wgs = poly_wgs.exterior.coords[i]
-            folium.CircleMarker(
-                [coords_wgs[1], coords_wgs[0]], radius=marker_size, color="red", fill=True,
-                popup=f"STN: {row['STN']}<br>E: {row['E']}<br>N: {row['N']}"
-            ).add_to(fg_stn)
+        if show_stn:
+            for i, row in df.iterrows():
+                coords_wgs = poly_wgs.exterior.coords[i]
+                folium.CircleMarker(
+                    [coords_wgs[1], coords_wgs[0]], radius=marker_size, color="red", fill=True,
+                    popup=f"STN: {row['STN']}<br>E: {row['E']}<br>N: {row['N']}"
+                ).add_to(m)
 
         # 3. Layer Bearing/Jarak
-        for i, data in enumerate(label_data):
-            pos_wgs = gdf_off_wgs.iloc[i].geometry
-            label_html = f"""<div style="transform: translate(-50%,-50%) rotate({data['rotation']}deg); text-align: center; pointer-events: none;">
-                             <div style="font-size: {text_size}pt; color: #00FF00; font-weight: bold; text-shadow: 2px 2px 2px #000;">{data['bearing']}<br>{data['distance']}</div>
-                             </div>"""
-            folium.Marker([pos_wgs.y, pos_wgs.x], icon=folium.DivIcon(html=label_html)).add_to(fg_labels)
+        if show_labels:
+            for i, data in enumerate(label_data):
+                pos_wgs = gdf_off_wgs.iloc[i].geometry
+                label_html = f"""<div style="transform: translate(-50%,-50%) rotate({data['rotation']}deg); text-align: center; pointer-events: none;">
+                                 <div style="font-size: {text_size}pt; color: #00FF00; font-weight: bold; text-shadow: 2px 2px 2px #000;">{data['bearing']}<br>{data['distance']}</div>
+                                 </div>"""
+                folium.Marker([pos_wgs.y, pos_wgs.x], icon=folium.DivIcon(html=label_html)).add_to(m)
 
         # 4. Layer Luas (Teks di Tengah)
-        area_text = f"{poly_meter.area:.3f} m²"
-        folium.Marker(
-            [poly_wgs.centroid.y, poly_wgs.centroid.x],
-            icon=folium.DivIcon(html=f"""<div style="font-size: {text_size+2}pt; color: yellow; font-weight: bold; text-shadow: 2px 2px 2px black; text-align: center; width: 150px; transform: translate(-50%,-50%);">{area_text}</div>""")
-        ).add_to(fg_area)
+        if show_area:
+            area_text = f"{poly_meter.area:.3f} m²"
+            folium.Marker(
+                [poly_wgs.centroid.y, poly_wgs.centroid.x],
+                icon=folium.DivIcon(html=f"""<div style="font-size: {text_size+2}pt; color: yellow; font-weight: bold; text-shadow: 2px 2px 2px black; text-align: center; width: 150px; transform: translate(-50%,-50%);">{area_text}</div>""")
+            ).add_to(m)
 
-        # Control & Plugins
-        folium.LayerControl(collapsed=False).add_to(m) # Panel On/Off sentiasa terbuka
+        # Plugins
         Fullscreen().add_to(m)
         MeasureControl(primary_length_unit='meters').add_to(m)
         MousePosition().add_to(m)
         
         st_folium(m, use_container_width=True, height=700)
-
-        # Export Button
-        st.download_button("📥 Export GeoJSON (QGIS)", gdf_poly.to_json(), f"lot_{st.session_state['current_user']}.geojson", "application/json")
+    else:
+        st.info("Sila muat naik fail CSV di bahagian sidebar.")
