@@ -8,7 +8,7 @@ from streamlit_folium import st_folium
 import numpy as np
 
 # --- 1. PENGURUSAN LOGIN ---
-ALLOWED_IDS = ["ID 1", "ID 2", "ID 3"]
+ALLOWED_IDS = ["MUHAMMAD", "NAFIZ", "NAJMI"]
 
 if 'password_db' not in st.session_state:
     st.session_state['password_db'] = 'admin123'
@@ -168,3 +168,4 @@ else:
         st_folium(m, use_container_width=True, height=700)
     else:
         st.info("Sila muat naik fail CSV di bahagian sidebar.")
+
