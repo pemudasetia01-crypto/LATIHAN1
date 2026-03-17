@@ -1,13 +1,9 @@
 import streamlit as st
 import pandas as pd
-import gpd
-import geopandas as gpd
+import geopandas as gpd  # Pastikan ini betul
+# import gpd  <-- PADAM BARIS INI JIKA ADA
 from shapely.geometry import Polygon, LineString
-import folium
-from folium.plugins import MeasureControl, MousePosition, Fullscreen
-from streamlit_folium import st_folium
-import numpy as np
-import json
+import folium 
 
 # --- 1. PENGURUSAN LOGIN ---
 ALLOWED_IDS = ["MUHAMMAD", "NAFIZ", "NAJMI"]
