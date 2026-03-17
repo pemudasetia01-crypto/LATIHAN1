@@ -1,9 +1,11 @@
 import streamlit as st
 import pandas as pd
-import geopandas as gpd  # Pastikan ini betul
-# import gpd  <-- PADAM BARIS INI JIKA ADA
-from shapely.geometry import Polygon, LineString
-import folium 
+import geopandas as gpd
+from shapely.geometry import Polygon
+import folium
+from folium.plugins import MeasureControl, MousePosition, Fullscreen
+from streamlit_folium import st_folium
+import numpy as np
 
 # --- 1. PENGURUSAN LOGIN ---
 ALLOWED_IDS = ["MUHAMMAD", "NAFIZ", "NAJMI"]
@@ -113,47 +115,6 @@ else:
         gdf_poly = gpd.GeoDataFrame(crs="EPSG:4390", geometry=[poly_meter]).to_crs(epsg=4326)
         poly_wgs = gdf_poly.geometry.iloc[0]
 
-        # --- FUNGSI EXPORT GEOJSON (QGIS READY) ---
-        with st.sidebar:
-            st.markdown("---")
-            st.subheader("🚀 Export ke QGIS")
-            
-            # Sediakan Features (LineString dengan Atribut Label)
-            features = []
-            for i, data in enumerate(label_data):
-                p1_coords = poly_wgs.exterior.coords[i]
-                p2_coords = poly_wgs.exterior.coords[(i + 1) % len(df)]
-                
-                feature = {
-                    "type": "Feature",
-                    "geometry": {
-                        "type": "LineString",
-                        "coordinates": [p1_coords, p2_coords]
-                    },
-                    "properties": {
-                        "STN_DARI": data['dari_stn'],
-                        "STN_KE": data['ke_stn'],
-                        "BEARING": data['bearing'],
-                        "JARAK": data['distance'],
-                        "LABEL": f"{data['bearing']} | {data['distance']}"
-                    }
-                }
-                features.append(feature)
-
-            geojson_dict = {
-                "type": "FeatureCollection",
-                "features": features
-            }
-            
-            geojson_str = json.dumps(geojson_dict)
-            st.download_button(
-                label="📥 Muat Turun GeoJSON",
-                data=geojson_str,
-                file_name="survey_data_qgis.geojson",
-                mime="application/geo+json"
-            )
-
-        # --- RENDER MAP ---
         m = folium.Map(location=[poly_wgs.centroid.y, poly_wgs.centroid.x], zoom_start=19, max_zoom=24)
         folium.TileLayer(tiles="https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}", attr="Google", name="Google Satellite", max_zoom=24, max_native_zoom=20).add_to(m)
 
@@ -187,6 +148,7 @@ else:
                     popup=folium.Popup(popup_html, max_width=250)
                 ).add_to(m)
                 
+                # --- WARNA NOMBOR STESEN DITUKAR KE HITAM (BLACK) ---
                 stn_html = f'''<div style="
                     font-size: {text_size}pt; 
                     color: black; 
