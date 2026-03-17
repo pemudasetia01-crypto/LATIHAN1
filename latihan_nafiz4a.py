@@ -63,10 +63,11 @@ def calculate_survey_labels(df, poly_meter, offset_dist):
         off_e = mid_e + (v_e / v_mag * offset_dist)
         off_n = mid_n + (v_n / v_mag * offset_dist)
         
+        # Offset untuk Label Nombor Stesen (supaya tidak bertindih dengan titik)
         stn_v_e, stn_v_n = p1['E'] - centroid.x, p1['N'] - centroid.y
         stn_v_mag = np.sqrt(stn_v_e**2 + stn_v_n**2)
-        stn_off_e = p1['E'] + (stn_v_e / stn_v_mag * 1.5)
-        stn_off_n = p1['N'] + (stn_v_n / stn_v_mag * 1.5)
+        stn_off_e = p1['E'] + (stn_v_e / stn_v_mag * 1.2)
+        stn_off_n = p1['N'] + (stn_v_n / stn_v_mag * 1.2)
         
         results.append({
             'dari_stn': p1['STN'], 'ke_stn': p2['STN'],
@@ -81,9 +82,12 @@ if not st.session_state['logged_in']:
     login_page()
 else:
     st.set_page_config(page_title="Surveyor Pro WebGIS", layout="wide")
-    st.title("🛰️ Johor Grid WebGIS (EPSG:4390)")
 
     with st.sidebar:
+        # LOGO POLITEKNIK UNGKU OMAR
+        logo_puo = "https://upload.wikimedia.org/wikipedia/commons/b/b3/Logo_Politeknik_Ungku_Omar.png"
+        st.image(logo_puo, width=150)
+        
         st.markdown(f"### 👋 Hi, **{st.session_state['current_user']}**")
         if st.sidebar.button("Log Keluar"):
             st.session_state['logged_in'] = False
@@ -91,7 +95,7 @@ else:
 
         st.header("⚙️ Tetapan Visual")
         show_poly = st.checkbox("Sempadan Lot", value=True)
-        show_stn_point = st.checkbox("Titik Batu Sempadan", value=True)
+        show_stn_point = st.checkbox("Titik & No. Stesen", value=True)
         show_labels = st.checkbox("Bearing & Jarak", value=True)
         show_area = st.checkbox("Luas & Perimeter", value=True)
         text_size = st.slider("Saiz Teks Label", 6, 20, 10)
@@ -107,18 +111,14 @@ else:
         peri_val = poly_meter.length
         label_data = calculate_survey_labels(df, poly_meter, offset_val)
         
-        # Sediakan GeoDataFrame untuk Export & Paparan
         gdf_poly = gpd.GeoDataFrame({
             'User': [st.session_state['current_user']],
             'Luas_m2': [round(area_val, 3)],
             'Perimeter_m': [round(peri_val, 3)],
-            'Label_QGIS': [f"Luas: {area_val:.2f}m2 | Peri: {peri_val:.2f}m"]
+            'Label_QGIS': [f"L: {area_val:.2f}m2 | P: {peri_val:.2f}m"]
         }, crs="EPSG:4390", geometry=[poly_meter]).to_crs(epsg=4326)
         
         poly_wgs = gdf_poly.geometry.iloc[0]
-
-        # DOWNLOAD BUTTON
-        st.sidebar.download_button("📥 Export GeoJSON (QGIS)", gdf_poly.to_json(), f"lot_{st.session_state['current_user']}.geojson", "application/json", use_container_width=True)
 
         # MAP DISPLAY
         m = folium.Map(location=[poly_wgs.centroid.y, poly_wgs.centroid.x], zoom_start=19, max_zoom=24)
@@ -128,22 +128,26 @@ else:
         if show_poly:
             folium.Polygon(locations=[[p[1], p[0]] for p in poly_wgs.exterior.coords], color="#00FFFF", weight=2, fill=True, fill_opacity=0.1).add_to(m)
 
-        # 2. Plot Titik Sempadan Interaktif
+        # 2. Plot Titik Sempadan + NOMBOR STESEN
         if show_stn_point:
+            # Sediakan koordinat offset untuk label nombor
+            stn_off_df = pd.DataFrame([{'E': x['stn_off_e'], 'N': x['stn_off_n']} for x in label_data])
+            gdf_stn_off_wgs = gpd.GeoDataFrame(stn_off_df, geometry=gpd.points_from_xy(stn_off_df.E, stn_off_df.N), crs="EPSG:4390").to_crs(epsg=4326)
+
             for i, row in df.iterrows():
                 coords_wgs = poly_wgs.exterior.coords[i]
-                popup_content = f"""
-                <div style='font-family: Arial; min-width: 150px;'>
-                    <b style='color: #e74c3c;'>Batu Sempadan: {row['STN']}</b><br><hr>
-                    <b>Easting (E):</b> {row['E']:.3f}<br>
-                    <b>Northing (N):</b> {row['N']:.3f}
-                </div>
-                """
+                stn_pos_wgs = gdf_stn_off_wgs.iloc[i].geometry
+                
+                # Marker Titik
                 folium.CircleMarker(
                     location=[coords_wgs[1], coords_wgs[0]],
-                    radius=6, color="red", fill=True, fill_color="white", fill_opacity=1.0,
-                    popup=folium.Popup(popup_content, max_width=300)
+                    radius=5, color="red", fill=True, fill_color="white", fill_opacity=1.0,
+                    popup=f"STN: {row['STN']}<br>E: {row['E']:.3f}<br>N: {row['N']:.3f}"
                 ).add_to(m)
+                
+                # Label Nombor Stesen
+                stn_html = f'<div style="font-size: {text_size}pt; color: white; font-weight: bold; text-shadow: 2px 2px 3px black; transform: translate(-50%, -50%);">{row["STN"]}</div>'
+                folium.Marker([stn_pos_wgs.y, stn_pos_wgs.x], icon=folium.DivIcon(html=stn_html)).add_to(m)
 
         # 3. Plot Label Luas/Perimeter Tengah
         if show_area:
@@ -161,29 +165,27 @@ else:
                 folium.Marker([pos_wgs.y, pos_wgs.x], icon=folium.DivIcon(html=lbl)).add_to(m)
 
         Fullscreen().add_to(m)
-        st_folium(m, use_container_width=True, height=650)
+        st_folium(m, use_container_width=True, height=600)
 
-        # --- 4. JADUAL MAKLUMAT DI BAWAH PETA ---
+        # --- JADUAL MAKLUMAT DI BAWAH PETA ---
         st.markdown("---")
-        st.subheader("📋 Ringkasan Maklumat Lot & Sempadan")
+        st.subheader("📋 Maklumat Lot & Data Ukuran")
         
-        col_tab1, col_tab2 = st.columns([1, 2])
-        
-        with col_tab1:
-            st.write("**Statistik Lot**")
-            summary_df = pd.DataFrame({
-                "Parameter": ["Keluasan", "Perimeter", "Bilangan Stesen"],
+        c1, c2 = st.columns([1, 2])
+        with c1:
+            st.write("**Ringkasan Lot**")
+            st.table(pd.DataFrame({
+                "Parameter": ["Keluasan", "Perimeter", "Bil. Stesen"],
                 "Nilai": [f"{area_val:.3f} m²", f"{peri_val:.3f} m", len(df)]
-            })
-            st.table(summary_df)
+            }))
 
-        with col_tab2:
-            st.write("**Data Ukuran (Bearing & Jarak)**")
+        with c2:
+            st.write("**Jadual Bearing & Jarak**")
             data_list = [{"Dari": x['dari_stn'], "Ke": x['ke_stn'], "Bearing": x['bearing'], "Jarak": x['distance']} for x in label_data]
-            st.dataframe(pd.DataFrame(data_list), use_container_width=True, height=200)
+            st.dataframe(pd.DataFrame(data_list), use_container_width=True)
 
-        st.write("**Koordinat Stesen (Johor Grid EPSG:4390)**")
+        st.write("**Koordinat Stesen (Johor Grid)**")
         st.dataframe(df[['STN', 'E', 'N']], use_container_width=True)
 
     else:
-        st.info("Sila muat naik fail CSV untuk memaparkan lot.")
+        st.info("Sila muat naik fail CSV.")
