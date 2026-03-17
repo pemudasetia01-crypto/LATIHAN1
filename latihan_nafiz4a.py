@@ -69,7 +69,8 @@ def calculate_survey_labels(df, poly_meter, offset_dist):
         stn_off_n = p1['N'] + (stn_v_n / stn_v_mag * 1.2)
         
         results.append({
-            'dari_stn': p1['STN'], 'ke_stn': p2['STN'],
+            'dari_stn': int(p1['STN']), # Pastikan integer
+            'ke_stn': int(p2['STN']),   # Pastikan integer
             'bearing': bearing, 'distance': f"{dist:.3f}m", 
             'rotation': rotation, 'off_e': off_e, 'off_n': off_n, 
             'stn_off_e': stn_off_e, 'stn_off_n': stn_off_n
@@ -104,6 +105,9 @@ else:
 
     if uploaded_file:
         df = pd.read_csv(uploaded_file)
+        # Tukar lajur STN kepada integer untuk hilangkan perpuluhan
+        df['STN'] = df['STN'].astype(int)
+        
         poly_meter = Polygon(list(zip(df['E'], df['N'])))
         area_val = poly_meter.area
         peri_val = poly_meter.length
@@ -118,7 +122,6 @@ else:
         if show_poly:
             folium.Polygon(locations=[[p[1], p[0]] for p in poly_wgs.exterior.coords], color="#00FFFF", weight=2, fill=True, fill_opacity=0.1).add_to(m)
 
-        # --- TITIK SEMPADAN DENGAN POPUP KEMAS ---
         if show_stn_point:
             stn_off_df = pd.DataFrame([{'E': x['stn_off_e'], 'N': x['stn_off_n']} for x in label_data])
             gdf_stn_off_wgs = gpd.GeoDataFrame(stn_off_df, geometry=gpd.points_from_xy(stn_off_df.E, stn_off_df.N), crs="EPSG:4390").to_crs(epsg=4326)
@@ -126,33 +129,16 @@ else:
             for i, row in df.iterrows():
                 coords_wgs = poly_wgs.exterior.coords[i]
                 stn_pos_wgs = gdf_stn_off_wgs.iloc[i].geometry
+                stn_no = int(row['STN']) # Pastikan integer
                 
-                # REKA BENTUK POPUP HTML (CSS INLINE)
                 popup_html = f"""
-                <div style="
-                    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
-                    width: 200px; 
-                    border-radius: 10px; 
-                    overflow: hidden; 
-                    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
-                ">
-                    <div style="background-color: #e74c3c; color: white; padding: 8px; text-align: center; font-weight: bold;">
-                        STESEN {row['STN']}
+                <div style="font-family: Arial; width: 180px; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.2);">
+                    <div style="background-color: #e74c3c; color: white; padding: 6px; text-align: center; font-weight: bold;">
+                        STESEN {stn_no}
                     </div>
-                    <div style="padding: 10px; background-color: #f9f9f9; color: #333;">
-                        <table style="width: 100%; border-collapse: collapse;">
-                            <tr>
-                                <td style="padding: 4px 0; border-bottom: 1px solid #ddd;"><b>Easting (E)</b></td>
-                                <td style="text-align: right; padding: 4px 0; border-bottom: 1px solid #ddd;">{row['E']:.3f}</td>
-                            </tr>
-                            <tr>
-                                <td style="padding: 4px 0;"><b>Northing (N)</b></td>
-                                <td style="text-align: right; padding: 4px 0;">{row['N']:.3f}</td>
-                            </tr>
-                        </table>
-                    </div>
-                    <div style="background-color: #eee; font-size: 8pt; text-align: center; padding: 5px; color: #777;">
-                        Johor Grid (EPSG:4390)
+                    <div style="padding: 10px; background-color: white;">
+                        <b>E:</b> {row['E']:.3f}<br>
+                        <b>N:</b> {row['N']:.3f}
                     </div>
                 </div>
                 """
@@ -163,7 +149,8 @@ else:
                     popup=folium.Popup(popup_html, max_width=250)
                 ).add_to(m)
                 
-                stn_html = f'<div style="font-size: {text_size}pt; color: white; font-weight: bold; text-shadow: 2px 2px 3px black; transform: translate(-50%, -50%);">{row["STN"]}</div>'
+                # Label nombor stesen tanpa perpuluhan
+                stn_html = f'<div style="font-size: {text_size}pt; color: white; font-weight: bold; text-shadow: 2px 2px 3px black; transform: translate(-50%, -50%);">{stn_no}</div>'
                 folium.Marker([stn_pos_wgs.y, stn_pos_wgs.x], icon=folium.DivIcon(html=stn_html)).add_to(m)
 
         if show_area:
@@ -182,14 +169,17 @@ else:
         Fullscreen().add_to(m)
         st_folium(m, use_container_width=True, height=600)
 
-        # --- JADUAL BAWAH ---
+        # --- JADUAL BAWAH (STN dalam integer) ---
         st.markdown("---")
         st.subheader("📋 Maklumat Ringkasan")
         c1, c2 = st.columns([1, 2])
         with c1:
             st.table(pd.DataFrame({"Parameter": ["Luas", "Perimeter", "Stesen"], "Nilai": [f"{area_val:.3f} m²", f"{peri_val:.3f} m", len(df)]}))
         with c2:
-            st.dataframe(pd.DataFrame([{"Dari": x['dari_stn'], "Ke": x['ke_stn'], "Bearing": x['bearing'], "Jarak": x['distance']} for x in label_data]), use_container_width=True)
+            st.dataframe(pd.DataFrame([{"Dari": int(x['dari_stn']), "Ke": int(x['ke_stn']), "Bearing": x['bearing'], "Jarak": x['distance']} for x in label_data]), use_container_width=True)
+
+        st.write("**Koordinat Stesen**")
+        st.dataframe(df[['STN', 'E', 'N']], use_container_width=True)
 
     else:
         st.info("Sila muat naik fail CSV.")
