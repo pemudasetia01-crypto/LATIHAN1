@@ -1,11 +1,13 @@
 import streamlit as st
 import pandas as pd
+import gpd
 import geopandas as gpd
-from shapely.geometry import Polygon
+from shapely.geometry import Polygon, LineString
 import folium
 from folium.plugins import MeasureControl, MousePosition, Fullscreen
 from streamlit_folium import st_folium
 import numpy as np
+import json
 
 # --- 1. PENGURUSAN LOGIN ---
 ALLOWED_IDS = ["MUHAMMAD", "NAFIZ", "NAJMI"]
@@ -69,8 +71,8 @@ def calculate_survey_labels(df, poly_meter, offset_dist):
         stn_off_n = p1['N'] + (stn_v_n / stn_v_mag * 1.2)
         
         results.append({
-            'dari_stn': int(p1['STN']), # Pastikan integer
-            'ke_stn': int(p2['STN']),   # Pastikan integer
+            'dari_stn': int(p1['STN']),
+            'ke_stn': int(p2['STN']),
             'bearing': bearing, 'distance': f"{dist:.3f}m", 
             'rotation': rotation, 'off_e': off_e, 'off_n': off_n, 
             'stn_off_e': stn_off_e, 'stn_off_n': stn_off_n
@@ -105,7 +107,6 @@ else:
 
     if uploaded_file:
         df = pd.read_csv(uploaded_file)
-        # Tukar lajur STN kepada integer untuk hilangkan perpuluhan
         df['STN'] = df['STN'].astype(int)
         
         poly_meter = Polygon(list(zip(df['E'], df['N'])))
@@ -116,6 +117,47 @@ else:
         gdf_poly = gpd.GeoDataFrame(crs="EPSG:4390", geometry=[poly_meter]).to_crs(epsg=4326)
         poly_wgs = gdf_poly.geometry.iloc[0]
 
+        # --- FUNGSI EXPORT GEOJSON (QGIS READY) ---
+        with st.sidebar:
+            st.markdown("---")
+            st.subheader("🚀 Export ke QGIS")
+            
+            # Sediakan Features (LineString dengan Atribut Label)
+            features = []
+            for i, data in enumerate(label_data):
+                p1_coords = poly_wgs.exterior.coords[i]
+                p2_coords = poly_wgs.exterior.coords[(i + 1) % len(df)]
+                
+                feature = {
+                    "type": "Feature",
+                    "geometry": {
+                        "type": "LineString",
+                        "coordinates": [p1_coords, p2_coords]
+                    },
+                    "properties": {
+                        "STN_DARI": data['dari_stn'],
+                        "STN_KE": data['ke_stn'],
+                        "BEARING": data['bearing'],
+                        "JARAK": data['distance'],
+                        "LABEL": f"{data['bearing']} | {data['distance']}"
+                    }
+                }
+                features.append(feature)
+
+            geojson_dict = {
+                "type": "FeatureCollection",
+                "features": features
+            }
+            
+            geojson_str = json.dumps(geojson_dict)
+            st.download_button(
+                label="📥 Muat Turun GeoJSON",
+                data=geojson_str,
+                file_name="survey_data_qgis.geojson",
+                mime="application/geo+json"
+            )
+
+        # --- RENDER MAP ---
         m = folium.Map(location=[poly_wgs.centroid.y, poly_wgs.centroid.x], zoom_start=19, max_zoom=24)
         folium.TileLayer(tiles="https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}", attr="Google", name="Google Satellite", max_zoom=24, max_native_zoom=20).add_to(m)
 
@@ -129,7 +171,7 @@ else:
             for i, row in df.iterrows():
                 coords_wgs = poly_wgs.exterior.coords[i]
                 stn_pos_wgs = gdf_stn_off_wgs.iloc[i].geometry
-                stn_no = int(row['STN']) # Pastikan integer
+                stn_no = int(row['STN'])
                 
                 popup_html = f"""
                 <div style="font-family: Arial; width: 180px; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.2);">
@@ -149,8 +191,14 @@ else:
                     popup=folium.Popup(popup_html, max_width=250)
                 ).add_to(m)
                 
-                # Label nombor stesen tanpa perpuluhan
-                stn_html = f'<div style="font-size: {text_size}pt; color: white; font-weight: bold; text-shadow: 2px 2px 3px black; transform: translate(-50%, -50%);">{stn_no}</div>'
+                stn_html = f'''<div style="
+                    font-size: {text_size}pt; 
+                    color: black; 
+                    font-weight: bold; 
+                    text-shadow: 1px 1px 2px white; 
+                    transform: translate(-50%, -50%);
+                ">{stn_no}</div>'''
+                
                 folium.Marker([stn_pos_wgs.y, stn_pos_wgs.x], icon=folium.DivIcon(html=stn_html)).add_to(m)
 
         if show_area:
@@ -169,17 +217,14 @@ else:
         Fullscreen().add_to(m)
         st_folium(m, use_container_width=True, height=600)
 
-        # --- JADUAL BAWAH (STN dalam integer) ---
+        # --- JADUAL BAWAH ---
         st.markdown("---")
-        st.subheader("📋 Maklumat Ringkasan")
+        st.subheader("📋 Ringkasan Maklumat")
         c1, c2 = st.columns([1, 2])
         with c1:
             st.table(pd.DataFrame({"Parameter": ["Luas", "Perimeter", "Stesen"], "Nilai": [f"{area_val:.3f} m²", f"{peri_val:.3f} m", len(df)]}))
         with c2:
             st.dataframe(pd.DataFrame([{"Dari": int(x['dari_stn']), "Ke": int(x['ke_stn']), "Bearing": x['bearing'], "Jarak": x['distance']} for x in label_data]), use_container_width=True)
-
-        st.write("**Koordinat Stesen**")
-        st.dataframe(df[['STN', 'E', 'N']], use_container_width=True)
 
     else:
         st.info("Sila muat naik fail CSV.")
